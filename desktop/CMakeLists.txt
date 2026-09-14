@@ -22,6 +22,7 @@ find_package(Threads REQUIRED)
 add_library(llcore STATIC
 	src/json.c
 	src/config.c
+	src/discover.c
 	src/decode.c
 	src/vcam.c
 	src/vmic.c

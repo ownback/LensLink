@@ -132,3 +132,7 @@ single-consumer ring.
   app ignores it.
 - **Status stalls at "Looking for a phone…"** — open the iOS app
   foregrounded, and check *Local Network* permission for LensLink.
+- **Discovery** — Wi-Fi discovery uses avahi (any desktop Linux has it);
+  without avahi it falls back to a raw mDNS query, which some networks'
+  responders ignore. Either way, typing the phone's IP in the tray's
+  *Phone → Manual IP…* always works, and USB needs only `usbmuxd`.

@@ -1,12 +1,12 @@
 #include "session.h"
 
 #include "decode.h"
+#include "discover.h"
 #include "json.h"
 #include "log.h"
 #include "net-compat.h"
 #include "protocol.h"
 
-#include <mdns.h>
 #include <usbmux.h>
 
 #include <errno.h>
@@ -614,12 +614,11 @@ static void dial_loop(struct session *s)
 			char host[64];
 			snprintf(host, sizeof(host), "%s", cfg.host);
 			if (!host[0]) {
-				struct mdns_result results[8];
-				int n = mdns_browse("_lenslink._tcp.local",
-						    1000, results, 8);
+				struct ll_phone phones[8];
+				int n = ll_discover_phones(phones, 8);
 				if (n > 0)
 					snprintf(host, sizeof(host), "%s",
-						 results[0].host);
+						 phones[0].host);
 			}
 			if (!host[0]) {
 				reset_stats(s);

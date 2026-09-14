@@ -1,6 +1,7 @@
 #include "daemon.h"
 
 #include "config.h"
+#include "discover.h"
 #include "ipc.h"
 #include "json.h"
 #include "log.h"
@@ -8,7 +9,6 @@
 #include "vcam.h"
 #include "vmic.h"
 
-#include <mdns.h>
 #include <usbmux.h>
 
 #include <pthread.h>
@@ -110,28 +110,27 @@ static void push_config(struct daemon *d)
 
 static void list_phones(char *resp, size_t size)
 {
-	struct mdns_result wifi[8];
-	int n_wifi = mdns_browse("_lenslink._tcp.local", 750, wifi, 8);
+	struct ll_phone wifi[8];
+	int n_wifi = ll_discover_phones(wifi, 8);
 	struct usbmux_device usb[8];
 	int n_usb = usbmux_list_devices(usb, 8);
 
 	size_t off = (size_t)snprintf(resp, size,
 				      "{\"type\":\"phones\",\"wifi\":[");
 	for (int i = 0; i < n_wifi && off < size - 64; i++) {
-		char esc[80], esc_host[64];
+		char esc[160], esc_host[128];
 		json_escape_to(esc, sizeof(esc), wifi[i].name);
 		json_escape_to(esc_host, sizeof(esc_host), wifi[i].host);
-		off += (size_t)snprintf(
-			resp + off, size - off,
-			"%s{\"name\":%s,\"host\":\"%s\"}", i ? "," : "", esc,
-			esc_host);
+		off += (size_t)snprintf(resp + off, size - off,
+					"%s{\"name\":%s,\"host\":%s}",
+					i ? "," : "", esc, esc_host);
 	}
 	off += (size_t)snprintf(resp + off, size - off, "],\"usb\":[");
 	for (int i = 0; i < n_usb && off < size - 64; i++) {
-		char esc[80];
+		char esc[160];
 		json_escape_to(esc, sizeof(esc), usb[i].udid);
 		off += (size_t)snprintf(resp + off, size - off,
-					"%s{\"udid\":\"%s\"}", i ? "," : "",
+					"%s{\"udid\":%s}", i ? "," : "",
 					esc);
 	}
 	snprintf(resp + off, size - off, "]}");

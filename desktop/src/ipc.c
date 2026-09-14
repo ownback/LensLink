@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,39 +33,58 @@ const char *ipc_socket_path(void)
 	return path;
 }
 
+static void *ipc_conn(void *data)
+{
+	int fd = (int)(intptr_t)data;
+
+	/* A wedged client must never hold the server hostage. */
+	struct timeval tv = {.tv_sec = 3, .tv_usec = 0};
+	setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv,
+		   sizeof(tv));
+	setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (const char *)&tv,
+		   sizeof(tv));
+
+	char req[IPC_REQ_MAX];
+	char resp[IPC_REQ_MAX];
+	size_t len = 0;
+	while (len < sizeof(req) - 1) {
+		char ch;
+		ssize_t n = recv(fd, &ch, 1, 0);
+		if (n <= 0)
+			break;
+		if (ch == '\n')
+			break;
+		req[len++] = ch;
+	}
+	req[len] = 0;
+
+	resp[0] = 0;
+	if (len)
+		req_handler(handler_ud, req, resp, sizeof(resp));
+	if (!resp[0])
+		snprintf(resp, sizeof(resp),
+			 "{\"type\":\"error\",\"error\":\"no reply\"}");
+
+	strcat(resp, "\n");
+	send(fd, resp, strlen(resp), MSG_NOSIGNAL);
+	close(fd);
+	return NULL;
+}
+
 static void *ipc_server_loop(void *data)
 {
 	(void)data;
-	char req[IPC_REQ_MAX];
-	char resp[IPC_REQ_MAX];
-
 	while (ipc_active) {
 		int fd = accept(listen_fd, NULL, NULL);
 		if (fd < 0)
 			break;
 
-		size_t len = 0;
-		while (len < sizeof(req) - 1) {
-			char ch;
-			ssize_t n = recv(fd, &ch, 1, 0);
-			if (n <= 0)
-				break;
-			if (ch == '\n')
-				break;
-			req[len++] = ch;
-		}
-		req[len] = 0;
-
-		resp[0] = 0;
-		if (len)
-			req_handler(handler_ud, req, resp, sizeof(resp));
-		if (!resp[0])
-			snprintf(resp, sizeof(resp),
-				 "{\"type\":\"error\",\"error\":\"no reply\"}");
-
-		strcat(resp, "\n");
-		send(fd, resp, strlen(resp), MSG_NOSIGNAL);
-		close(fd);
+		pthread_t conn;
+		if (pthread_create(&conn, NULL, ipc_conn,
+				   (void *)(intptr_t)fd) == 0)
+			pthread_detach(conn);
+		else
+			close(fd);
 	}
 	return NULL;
 }
