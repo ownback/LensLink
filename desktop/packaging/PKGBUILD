@@ -8,18 +8,16 @@ url="https://github.com/ownback/LensLink"
 license=(GPL-2.0-or-later)
 depends=(glibc ffmpeg libavcodec.so libavutil.so pipewire libpipewire
          qt6-base libusbmuxd usbmuxd v4l2loopback-dkms)
-makedepends=(cmake pkgconf)
+makedepends=(cmake pkgconf git)
 optdepends=('linux-headers: build v4l2loopback-dkms against your kernel')
-conflicts=(lenslink-desktop-git)
-source=("$pkgname-$pkgver.tar.gz")
+source=("LensLink::git+file://${startdir}/../..#branch=desktop-app")
 sha256sums=(SKIP)
 
 build() {
 	cmake -B build -S LensLink/desktop \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DLENSLINK_VERSION="$pkgver" \
-		-DCMAKE_INSTALL_PREFIX=/usr \
-		-DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
+		-DCMAKE_INSTALL_PREFIX=/usr
 	cmake --build build
 }
 

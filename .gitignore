@@ -1,6 +1,11 @@
 # Build output
 obs-plugin/build*/
 desktop/build/
+desktop/packaging/src/
+desktop/packaging/pkg/
+desktop/packaging/build/
+desktop/packaging/*.tar.gz
+desktop/packaging/vcs-source-*
 
 # Xcode / XcodeGen
 ios-app/*.xcodeproj
