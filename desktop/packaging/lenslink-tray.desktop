@@ -1,0 +1,12 @@
+[Unit]
+Description=LensLink tray
+
+[Desktop Entry]
+Type=Application
+Name=LensLink
+Comment=Use your iPhone as a system-wide webcam and microphone
+Exec=/usr/bin/lenslink-tray
+Icon=camera-web
+Terminal=false
+Categories=AudioVideo;Video;
+NoDisplay=true

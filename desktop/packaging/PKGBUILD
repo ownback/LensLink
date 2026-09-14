@@ -1,0 +1,39 @@
+# Maintainer: ownback <https://github.com/ownback>
+pkgname=lenslink-desktop
+pkgver=1.0.0.dev
+pkgrel=1
+pkgdesc="Use your iPhone as a system-wide webcam and microphone (LensLink)"
+arch=(x86_64)
+url="https://github.com/ownback/LensLink"
+license=(GPL-2.0-or-later)
+depends=(glibc ffmpeg libavcodec.so libavutil.so pipewire libpipewire
+         qt6-base libusbmuxd usbmuxd v4l2loopback-dkms)
+makedepends=(cmake pkgconf)
+optdepends=('linux-headers: build v4l2loopback-dkms against your kernel')
+conflicts=(lenslink-desktop-git)
+source=("$pkgname-$pkgver.tar.gz")
+sha256sums=(SKIP)
+
+build() {
+	cmake -B build -S LensLink/desktop \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DLENSLINK_VERSION="$pkgver" \
+		-DCMAKE_INSTALL_PREFIX=/usr \
+		-DCMAKE_C_FLAGS="-Wall -Wextra -Werror"
+	cmake --build build
+}
+
+package() {
+	DESTDIR="$pkgdir" cmake --install build
+
+	install -Dm644 LensLink/desktop/packaging/lenslinkd.service \
+		"$pkgdir/usr/lib/systemd/user/lenslinkd.service"
+	install -Dm644 LensLink/desktop/packaging/lenslink-tray.desktop \
+		"$pkgdir/etc/xdg/autostart/lenslink-tray.desktop"
+	install -Dm644 LensLink/desktop/packaging/lenslink.desktop \
+		"$pkgdir/usr/share/applications/lenslink.desktop"
+	install -Dm644 LensLink/desktop/packaging/modules-load-lenslink.conf \
+		"$pkgdir/usr/lib/modules-load.d/lenslink.conf"
+	install -Dm644 LensLink/desktop/packaging/modprobe-lenslink.conf \
+		"$pkgdir/usr/lib/modprobe.d/lenslink.conf"
+}

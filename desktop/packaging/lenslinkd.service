@@ -1,0 +1,13 @@
+[Unit]
+Description=LensLink desktop daemon — iPhone as a system-wide webcam and microphone
+Documentation=https://github.com/ownback/LensLink
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/lenslinkd
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target
