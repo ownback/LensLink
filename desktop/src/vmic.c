@@ -6,6 +6,7 @@
 #include <spa/param/audio/format-utils.h>
 
 #include <pthread.h>
+#include <time.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -94,39 +95,49 @@ static void on_process(void *ud)
 		return;
 	struct spa_buffer *buf = b->buffer;
 	int16_t *dst = buf->datas[0].data;
-	if (dst) {
-		size_t want = buf->datas[0].maxsize / 4; /* bytes→stereo s16 frames */
-		if (b->requested > 0 && b->requested < want)
-			want = b->requested;
-		size_t got;
-		pthread_mutex_lock(&v->lock);
-		got = ring_pop(r, (uint8_t *)dst, want * 4);
-		pthread_mutex_unlock(&v->lock);
-		memset((uint8_t *)dst + got, 0, want * 4 - got);
+	if (!dst) {
+		/* Never hand the graph a stale chunk on an unmapped
+		 * buffer — an empty chunk is the legal skip. Queuing with
+		 * a stale size made the sink's mixer memcpy from
+		 * garbage ("memory 0 not aligned" → SEGV). */
+		buf->datas[0].chunk->size = 0;
 		buf->datas[0].chunk->offset = 0;
-		buf->datas[0].chunk->stride = 4;
-		buf->datas[0].chunk->size = want * 4;
+		pw_stream_queue_buffer(v->stream, b);
+		return;
 	}
+	size_t want = buf->datas[0].maxsize / 4; /* bytes→stereo s16 frames */
+	if (b->requested > 0 && b->requested < want)
+		want = b->requested;
+	size_t got;
+	pthread_mutex_lock(&v->lock);
+	got = ring_pop(r, (uint8_t *)dst, want * 4);
+	pthread_mutex_unlock(&v->lock);
+	memset((uint8_t *)dst + got, 0, want * 4 - got);
+	buf->datas[0].chunk->offset = 0;
+	buf->datas[0].chunk->stride = 4;
+	buf->datas[0].chunk->size = want * 4;
 	pw_stream_queue_buffer(v->stream, b);
+}
+
+static void on_state_changed(void *ud, enum pw_stream_state old,
+			     enum pw_stream_state state, const char *error)
+{
+	struct vmic *v = ud;
+	(void)old;
+	(void)error;
+	if (state == PW_STREAM_STATE_ERROR ||
+	    state == PW_STREAM_STATE_UNCONNECTED)
+		v->reconnect = true;
 }
 
 static const struct pw_stream_events stream_events = {
 	PW_VERSION_STREAM_EVENTS,
+	.state_changed = on_state_changed,
 	.process = on_process,
 };
 
-bool vmic_start(struct vmic *v)
+static bool stream_create(struct vmic *v)
 {
-	memset(v, 0, sizeof(*v));
-	pthread_mutex_init(&v->lock, NULL);
-
-	v->ring = malloc(sizeof(struct spsc_ring));
-	if (!v->ring)
-		return false;
-	ring_init(v->ring);
-
-	pw_init(NULL, NULL);
-
 	v->loop = pw_thread_loop_new("lenslink-vmic", NULL);
 	if (!v->loop) {
 		LOGE("vmic: thread loop failed");
@@ -180,7 +191,8 @@ bool vmic_start(struct vmic *v)
 	return true;
 }
 
-void vmic_stop(struct vmic *v)
+/* Tears down loop+stream only; ring and mutex survive. */
+static void stream_destroy(struct vmic *v)
 {
 	if (v->loop)
 		pw_thread_loop_stop(v->loop);
@@ -191,6 +203,43 @@ void vmic_stop(struct vmic *v)
 	}
 	if (v->loop)
 		pw_thread_loop_destroy(v->loop);
+	v->loop = NULL;
+}
+
+/* PipeWire restarted (or the graph ate the stream): rebuild from the
+ * producer thread at most every 2 s while it is down. */
+static void vmic_rebuild(struct vmic *v)
+{
+	uint64_t now = (uint64_t)time(NULL);
+	if (now - v->last_retry_ns < 2)
+		return;
+	v->last_retry_ns = now;
+	LOGW("vmic: PipeWire stream lost — reconnecting");
+	stream_destroy(v);
+	if (!stream_create(v)) {
+		stream_destroy(v);
+		v->reconnect = true;
+	}
+}
+
+bool vmic_start(struct vmic *v)
+{
+	memset(v, 0, sizeof(*v));
+	pthread_mutex_init(&v->lock, NULL);
+
+	v->ring = malloc(sizeof(struct spsc_ring));
+	if (!v->ring)
+		return false;
+	ring_init(v->ring);
+
+	pw_init(NULL, NULL);
+
+	return stream_create(v);
+}
+
+void vmic_stop(struct vmic *v)
+{
+	stream_destroy(v);
 	free(v->ring);
 	pthread_mutex_destroy(&v->lock);
 	memset(v, 0, sizeof(*v));
@@ -198,8 +247,12 @@ void vmic_stop(struct vmic *v)
 
 void vmic_push(struct vmic *v, const int16_t *pcm, size_t frames)
 {
-	if (!v->stream)
-		return;
+	if (v->reconnect) {
+		vmic_rebuild(v);
+		if (!v->stream)
+			return; /* still down; flag stays set for retry */
+	}
+	v->reconnect = false;
 	pthread_mutex_lock(&v->lock);
 	ring_push(v->ring, (const uint8_t *)pcm, frames * 4);
 	pthread_mutex_unlock(&v->lock);

@@ -14,6 +14,8 @@ struct vmic {
 	void *stream;
 	void *ring;
 	pthread_mutex_t lock;
+	bool reconnect;      /* stream died — rebuild on the next push */
+	uint64_t last_retry_ns;
 };
 
 bool vmic_start(struct vmic *v);
