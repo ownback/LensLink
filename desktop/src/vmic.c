@@ -55,6 +55,17 @@ static void ring_push(struct spsc_ring *r, const uint8_t *data, size_t n)
 	}
 	r->wr = (r->wr + n) % r->cap;
 	r->used += n;
+
+	/* The phone's 48 kHz clock drifts against PipeWire's. Absorbing
+	 * drift forever grows the backlog — audible as the mic lagging
+	 * seconds behind until a stream restart. Cap it: past 120 ms,
+	 * resync down to 30 ms (one tiny discontinuity, then in sync). */
+	size_t hi = 48000 * 4 * 120 / 1000;
+	size_t lo = 48000 * 4 * 30 / 1000;
+	if (r->used > hi) {
+		r->rd = (r->rd + (r->used - lo)) % r->cap;
+		r->used = lo;
+	}
 }
 
 static size_t ring_pop(struct spsc_ring *r, uint8_t *out, size_t n)
